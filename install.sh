@@ -4,7 +4,7 @@
 # Modified by : msy2008 (https://github.com/msy2008/yiimp_install_scrypt)
 
 # Program:
-#   Install yiimp on Ubuntu 22.04 running Nginx, MariaDB, and php8.3
+#   Install yiimp on Ubuntu 22.04 running Nginx, MariaDB, and php8.2
 #   v1.0 (updated March 2025)
 #
 ################################################################################
@@ -45,7 +45,7 @@
     echo
     echo -e "$GREEN************************************************************************$COL_RESET"
     echo -e "$GREEN Yiimp Install Script v1.0 $COL_RESET"
-    echo -e "$GREEN Install yiimp on Ubuntu 22.04 running Nginx, MariaDB, and php8.3 $COL_RESET"
+    echo -e "$GREEN Install yiimp on Ubuntu 22.04 running Nginx, MariaDB, and php8.2 $COL_RESET"
     echo -e "$GREEN************************************************************************$COL_RESET"
     echo
     sleep 3
@@ -159,10 +159,10 @@
     echo -e "$GREEN Done...$COL_RESET"
 
 
-    # Installing Installing php8.3
+    # Installing Installing php8.2
     echo
     echo
-    echo -e "$CYAN => Installing php8.3 : $COL_RESET"
+    echo -e "$CYAN => Installing php8.2 : $COL_RESET"
     echo
     sleep 3
 
@@ -182,10 +182,10 @@
     echo "Debug: Detected OS version: $DISTRO"
 
     # Check if the OS is Ubuntu 22.04 (LTS)
-#    if [[ "$DISTRO" != "22.04" ]]; then
- #       echo -e "\033[31mAborting, wrong OS. Must be Ubuntu 22.04 (detected: $DISTRO).\033[0m"
-  #      exit 1
-   # fi
+    if [[ "$DISTRO" != "22.04" ]]; then
+        echo -e "\033[31mAborting, wrong OS. Must be Ubuntu 22.04 (detected: $DISTRO).\033[0m"
+        exit 1
+    fi
 
     # Define a function for apt package installation (with -y flag to avoid confirmation prompts)
     apt_install() {
@@ -203,28 +203,28 @@
         sudo apt-get update                                 # Update after adding the new repository
     fi
 
-    # Install PHP 8.3 and its extensions
+    # Install PHP 8.2 and its extensions
     apt_install \
-        php8.3-fpm php8.3-opcache php8.3 php8.3-common php8.3-gd php8.3-mysql php8.3-imap php8.3-cli \
-        php8.3-cgi php-pear imagemagick libruby php8.3-curl php8.3-intl php8.3-pspell \
-        php8.3-sqlite3 php8.3-tidy php8.3-xmlrpc php8.3-xsl memcached php-memcache \
-        php-imagick php8.3-zip php8.3-mbstring libpsl-dev libnghttp2-dev \
-        php8.3-memcache php8.3-memcached net-tools
+        php8.2-fpm php8.2-opcache php8.2 php8.2-common php8.2-gd php8.2-mysql php8.2-imap php8.2-cli \
+        php8.2-cgi php-pear imagemagick libruby php8.2-curl php8.2-intl php8.2-pspell \
+        php8.2-sqlite3 php8.2-tidy php8.2-xmlrpc php8.2-xsl memcached php-memcache \
+        php-imagick php8.2-zip php8.2-mbstring libpsl-dev libnghttp2-dev \
+        php8.2-memcache php8.2-memcached net-tools
 
-    # Ensure phpenmod is available (provided by php8.3-common)
+    # Ensure phpenmod is available (provided by php8.2-common)
     if ! command -v phpenmod &>/dev/null; then
-        apt_install php8.3-common
+        apt_install php8.2-common
     fi
 
     # Enable required PHP modules (mbstring for multibyte string handling)
     sudo phpenmod mbstring
 
     # Set PHP 8.2 as the default PHP version
-    sudo update-alternatives --set php /usr/bin/php8.3
+    sudo update-alternatives --set php /usr/bin/php8.2
 
     # Start PHP-FPM service and check its status (show only first 3 lines of status)
-    sudo systemctl start php8.3-fpm || { echo "Failed to start php8.3-fpm"; exit 1; }
-    sudo systemctl status php8.3-fpm --no-pager | sed -n "1,3p"
+    sudo systemctl start php8.2-fpm || { echo "Failed to start php8.2-fpm"; exit 1; }
+    sudo systemctl status php8.2-fpm --no-pager | sed -n "1,3p"
 
     # Success message (green text)
     echo -e "\033[32mDone... PHP 8.2 installed successfully!\033[0m"
@@ -549,7 +549,7 @@
 
         location ~ ^/index\.php$ {
             fastcgi_split_path_info ^(.+\.php)(/.+)$;
-            fastcgi_pass unix:/var/run/php/php8.3-fpm.sock;
+            fastcgi_pass unix:/var/run/php/php8.2-fpm.sock;
             fastcgi_index index.php;
             include fastcgi_params;
             fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
@@ -586,7 +586,7 @@
             deny all;
       }
         location ~ /phpmyadmin/(.+\.php)$ {
-            fastcgi_pass unix:/run/php/php8.3-fpm.sock;
+            fastcgi_pass unix:/run/php/php8.2-fpm.sock;
             fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
             include fastcgi_params;
             include snippets/fastcgi-php.conf;
@@ -598,7 +598,7 @@
     sudo ln -s /etc/nginx/sites-available/$server_name.conf /etc/nginx/sites-enabled/$server_name.conf
     sudo ln -s /var/web /var/www/$server_name/html
     sudo ln -s /var/stratum/config /var/web/list-algos
-    sudo systemctl reload php8.3-fpm.service
+    sudo systemctl reload php8.2-fpm.service
     sudo systemctl restart nginx.service
     echo -e "$GREEN Done...$COL_RESET"
 
@@ -680,7 +680,7 @@
 
             location ~ ^/index\.php$ {
                 fastcgi_split_path_info ^(.+\.php)(/.+)$;
-                fastcgi_pass unix:/var/run/php/php8.3-fpm.sock;
+                fastcgi_pass unix:/var/run/php/php8.2-fpm.sock;
                 fastcgi_index index.php;
                 include fastcgi_params;
                 fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
@@ -711,7 +711,7 @@
             deny all;
     }
         location ~ /phpmyadmin/(.+\.php)$ {
-            fastcgi_pass unix:/run/php/php8.3-fpm.sock;
+            fastcgi_pass unix:/run/php/php8.2-fpm.sock;
             fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
             include fastcgi_params;
             include snippets/fastcgi-php.conf;
@@ -722,7 +722,7 @@
     ' | sudo -E tee /etc/nginx/sites-available/$server_name.conf >/dev/null 2>&1
     fi
 
-    sudo systemctl reload php8.3-fpm.service
+    sudo systemctl reload php8.2-fpm.service
     sudo systemctl restart nginx.service
     echo -e "$GREEN Done...$COL_RESET"
 
@@ -765,7 +765,7 @@
 
         location ~ ^/index\.php$ {
             fastcgi_split_path_info ^(.+\.php)(/.+)$;
-            fastcgi_pass unix:/var/run/php/php8.3-fpm.sock;
+            fastcgi_pass unix:/var/run/php/php8.2-fpm.sock;
             fastcgi_index index.php;
             include fastcgi_params;
             fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
@@ -802,7 +802,7 @@
             deny all;
     }
         location ~ /phpmyadmin/(.+\.php)$ {
-            fastcgi_pass unix:/run/php/php8.3-fpm.sock;
+            fastcgi_pass unix:/run/php/php8.2-fpm.sock;
             fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
             include fastcgi_params;
             include snippets/fastcgi-php.conf;
@@ -814,7 +814,7 @@
     sudo ln -s /etc/nginx/sites-available/$server_name.conf /etc/nginx/sites-enabled/$server_name.conf
     sudo ln -s /var/web /var/www/$server_name/html
     sudo ln -s /var/stratum/config /var/web/list-algos
-    sudo systemctl reload php8.3-fpm.service
+    sudo systemctl reload php8.2-fpm.service
     sudo systemctl restart nginx.service
     echo -e "$GREEN Done...$COL_RESET"
 
@@ -897,7 +897,7 @@
 
             location ~ ^/index\.php$ {
                 fastcgi_split_path_info ^(.+\.php)(/.+)$;
-                fastcgi_pass unix:/var/run/php/php8.3-fpm.sock;
+                fastcgi_pass unix:/var/run/php/php8.2-fpm.sock;
                 fastcgi_index index.php;
                 include fastcgi_params;
                 fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
@@ -930,7 +930,7 @@
             deny all;
     }
         location ~ /phpmyadmin/(.+\.php)$ {
-            fastcgi_pass unix:/run/php/php8.3-fpm.sock;
+            fastcgi_pass unix:/run/php/php8.2-fpm.sock;
             fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
             include fastcgi_params;
             include snippets/fastcgi-php.conf;
@@ -943,7 +943,7 @@
     echo -e "$GREEN Done...$COL_RESET"
 
     fi
-    sudo systemctl reload php8.3-fpm.service
+    sudo systemctl reload php8.2-fpm.service
     sudo systemctl restart nginx.service
     fi
 
@@ -1255,8 +1255,8 @@
     sudo systemctl status mysql | sed -n "1,3p"
     sudo systemctl restart nginx.service
     sudo systemctl status nginx | sed -n "1,3p"
-    sudo systemctl restart php8.3-fpm.service
-    sudo systemctl status php8.3-fpm | sed -n "1,3p"
+    sudo systemctl restart php8.2-fpm.service
+    sudo systemctl status php8.2-fpm | sed -n "1,3p"
 
 
     echo
@@ -1292,7 +1292,7 @@
     echo -e "$RED YOU MUST REBOOT NOW  TO FINALIZE INSTALLATION !!! $COL_RESET"
     echo -e "$RED***************************************************$COL_RESET"
     echo -e "$RED if u have white page blank on site check          $COL_RESET"
-    echo -e "$RED php8.3-memcache | php8.3-memcached | php8.3-fpm   $COL_RESET"
+    echo -e "$RED php8.2-memcache | php8.2-memcached | php8.2-fpm   $COL_RESET"
     echo -e "$RED try just restart them first...                    $COL_RESET"
     echo -e "$RED***************************************************$COL_RESET"
     echo

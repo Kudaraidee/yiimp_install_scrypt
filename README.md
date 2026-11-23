@@ -1,4 +1,4 @@
-# Yiimp_install_scrypt v1.0 (update msy2008, 2025)
+# Yiimp_install_scrypt v1.1 (update Kudaraidee, 2026)
 
 Site : http://amxpool.com:8282
 
@@ -28,9 +28,17 @@ Original Yiimp Installer : https://github.com/xavatar/yiimp_install_scrypt
 
 ***********************************
 
-## Install script for yiimp on Ubuntu Server 22.04 (use msy2008's Yiimp)
+## Install script for yiimp on Ubuntu Server 22.04 / 24.04 (uses Kudaraidee's Yiimp)
 
-USE THIS SCRIPT ON FRESH INSTALL UBUNTU Server 22.04 !
+USE THIS SCRIPT ON A FRESH INSTALL OF UBUNTU SERVER 22.04 or 24.04!
+
+| Ubuntu | PHP | Web stack |
+|--------|-----|-----------|
+| 22.04 LTS | 8.2 | Nginx + MariaDB |
+| 24.04 LTS | 8.3 | Nginx + MariaDB |
+
+The PHP version is selected automatically from the OS release. Other Ubuntu
+versions (and ARM/32-bit systems) are rejected with an error message.
 
 ## Note: Enable root and log in to your Ubuntu system as root!!!
 
@@ -65,7 +73,7 @@ exit
 su pool
 ```
 ```
-sudo apt-get -y install build-essential libssl-dev curl git-core openssh-server
+sudo apt-get -y install build-essential libssl-dev curl git-core openssh-server lsb-release ca-certificates
 ```
 5.Download the Yiimp installation script and install it
 ```
@@ -118,7 +126,14 @@ Finish !
 - Go http://xxx.xxx.xxx.xxx or https://xxx.xxx.xxx.xxx (if you have chosen LetsEncrypt SSL). Enjoy !
 - Go http://xxx.xxx.xxx.xxx/AdminPanel or https://xxx.xxx.xxx.xxx/AdminPanel to access Panel Admin
 
-If you are issue after installation (nginx,mariadb... not found), use this script : bash install-debug.sh (watch the log during installation)
+If you have an issue during installation (nginx, mariadb... not found), run
+`bash install-debug.sh` instead of `bash install.sh`. It runs the same installer
+with shell tracing enabled and saves everything to `install-debug.log` in this
+directory. The log contains generated passwords - delete it when you are done.
+
+Let's Encrypt SSL is installed with the `certbot` package. Certificates are
+skipped automatically if you enter a bare IP address or leave the support
+e-mail empty; the HTTP-only nginx configuration is kept in that case.
 
 ###### :bangbang: **YOU MUST UPDATE THE FOLLOWING FILES :**
 

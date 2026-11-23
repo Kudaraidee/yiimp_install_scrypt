@@ -1,3 +1,45 @@
+Yiimp Install Scrypt v1.1 // 23.11.2026
+
+Information =>
+* Supports Ubuntu Server 22.04 (PHP 8.2) and 24.04 (PHP 8.3)
+* PHP version is auto-detected from the OS release; nginx and systemd use the
+  matching PHP-FPM version everywhere
+* Works with the current Kudaraidee/yiimp repository (default branch "dev")
+* SQL dump and ALL follow-up migrations from the yiimp sql/ folder are applied
+  automatically, in date order (including 2025-03-31 and the 2025/2026 algo
+  updates). Adding a new migration to yiimp no longer requires editing this
+  installer.
+
+Fix =>
+* Fix broken "printf" typo in output() and several wrong shell redirections
+  ("echo ... > sudo tee ...") in the mail/timezone sections
+* Fix "sudo apt_install ..." (a shell function cannot be called through sudo)
+  when selecting the compiler for stratum
+* Build yiimp/stratum as the owning user with gcc-10 wrappers in PATH instead of
+  changing the system-wide gcc/g++ alternatives
+* Fix git submodule commands that mixed sudo and non-sudo and left root-owned
+  files in the user's home directory
+* Fix the Ondrej PPA check (the old code looked for a "bionic" file name)
+* Fix timezone setup and use certbot instead of the removed "letsencrypt"
+  package on Ubuntu 24.04
+* Fix MySQL option order (--defaults-file must come first) and use
+  CREATE USER/GRANT instead of the deprecated GRANT ... IDENTIFIED BY
+* Fix symlink creation so a re-run does not fail with "File exists"
+* Remove the fragile "sed -i 14d" on yiimp's defaultconfig.php
+* Remove "apt-mark hold openssl" so security updates are not blocked
+* Correct the /$HOME/backup path and create /var/bin for yiimp binaries
+* Restrict /etc/yiimp/keys.php to root:www-data 0640
+
+Change =>
+* install-debug.sh is now a small wrapper that runs install.sh with "bash -x"
+  and writes install-debug.log (the old script was for Ubuntu 16.04/18.04)
+* Added install-debug.log to .gitignore
+* Set default MySQL client credentials in ~/.my.cnf to the yiimp panel user
+* Skip Let's Encrypt when the host name is an IP address or no e-mail is given;
+  keep the HTTP-only nginx config if certificate issuance fails
+* Keep timezone in UTC and start/enable memcached and cron
+
+---
 Yiimp Install Scrypt v0.2 // 10.04.2020
 Thanks to cryptopool-builders !!!!!!!!
 
@@ -11,8 +53,8 @@ Information =>
 * Add script to remove all coin (utils/delcoin.sh)
 
 Fix =>
-* Fix command cli « Yiimp » : OK
-* Fix Backup SQL FrontEnd : OK (/var/yiimp/sauv)
+* Fix command cli « Yiimp » : OK
+* Fix Backup SQL FrontEnd : OK (/var/yiimp/sauv)
 * Fix Permission on some folder
 
 Change =>

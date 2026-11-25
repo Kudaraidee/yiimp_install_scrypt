@@ -35,9 +35,9 @@ output ""
     read -e -p "Enter the name of the coin : " coin
     read -e -p "Paste the github link for the coin : " git_hub
 
-if [[ ! -e '$coin' ]]; then
-    sudo  git clone $git_hub  $coin
-elif [[ ! -d ~$CoinBuilds/$coin ]]; then
+if [[ ! -e "$coin" ]]; then
+    git clone "$git_hub" "$coin"
+elif [[ -d "$coin" ]]; then
     output "Coinbuilds/$coin already exists.... Skipping" 1>&2
     output "Can not continue"
     exit 0
@@ -64,7 +64,7 @@ if [ -f autogen.sh ]; then
 		output " "
         sudo make
 		output " "
-        output "$coin_name finished and can be found in CoinBuilds/$coin/src/ Make sure you sudo strip Coind and coin-cli if it exists, copy to /usr/bin"
+        output "$coin finished and can be found in CoinBuilds/$coin/src/ Make sure you sudo strip Coind and coin-cli if it exists, copy to /usr/bin"
 		output " "
 else
         cd src
@@ -100,4 +100,5 @@ sudo make -f makefile.unix
 output " "
 output "$coin finished and can be found in CoinBuilds/$coin/src/ Make sure you sudo strip Coind and coin-cli if it exists, copy to /usr/bin"
 output " "
+fi
 fi

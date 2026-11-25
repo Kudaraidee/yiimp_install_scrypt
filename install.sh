@@ -4,16 +4,24 @@
 # Modified by : msy2008 (https://github.com/msy2008/yiimp_install_scrypt)
 
 # Program:
-#   Install yiimp on Ubuntu 22.04 running Nginx, MariaDB, and php8.2
-#   v1.0 (updated March 2025)
+#   Install yiimp on Ubuntu 22.04 / 24.04 running Nginx, MariaDB
+#   PHP 8.2 (22.04) or PHP 8.3 (24.04)
+#   v1.1 (updated November 2026)
 #
 ################################################################################
 
+    # Always run from the directory that contains this script, so the files in
+    # conf/ and utils/ can be found even when the script is called by path.
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    cd "$SCRIPT_DIR" || exit 1
+
+    # Never prompt in the middle of package installation.
+    export DEBIAN_FRONTEND="noninteractive"
 
     output() {
     printf "\E[0;33;40m"
-    echo $1
-    printf "\E[0m"ku
+    echo "$1"
+    printf "\E[0m"
     }
 
     displayErr() {
@@ -40,12 +48,28 @@
 
     source /etc/functions.sh
 
+    # Package installation helpers
+    apt_install() {
+        sudo apt-get install -y "$@"
+    }
+
+    apt_install_optional() {
+        local pkg
+        for pkg in "$@"; do
+            if apt-cache show "$pkg" >/dev/null 2>&1; then
+                apt_install "$pkg" || echo -e "$YELLOW WARNING: failed to install $pkg $COL_RESET"
+            else
+                echo -e "$YELLOW WARNING: package $pkg is not available, skipping it $COL_RESET"
+            fi
+        done
+    }
+
 
     clear
     echo
     echo -e "$GREEN************************************************************************$COL_RESET"
-    echo -e "$GREEN Yiimp Install Script v1.0 $COL_RESET"
-    echo -e "$GREEN Install yiimp on Ubuntu 22.04 running Nginx, MariaDB, and php8.2 $COL_RESET"
+    echo -e "$GREEN Yiimp Install Script v1.1 $COL_RESET"
+    echo -e "$GREEN Install yiimp on Ubuntu 22.04 / 24.04 running Nginx, MariaDB and PHP $COL_RESET"
     echo -e "$GREEN************************************************************************$COL_RESET"
     echo
     sleep 3
@@ -62,11 +86,13 @@
     sudo apt -y upgrade
     sudo apt -y autoremove
     sudo apt-get install -y software-properties-common
-    sudo apt -y install dialog python3 python3-pip acl nano apt-transport-https
+    sudo apt -y install dialog python3 python3-pip acl nano apt-transport-https \
+        lsb-release ca-certificates curl wget gnupg cron
     echo -e "$GREEN Done...$COL_RESET"
 
 
     source conf/prerequisite.sh
+    echo -e "$CYAN Detected Ubuntu ${DISTRO} - using PHP ${PHP_VER}$COL_RESET"
     sleep 3
     source conf/getip.sh
 
@@ -90,6 +116,27 @@
     read -e -p "Install Fail2ban? [Y/n] : " install_fail2ban
     read -e -p "Install UFW and configure ports? [Y/n] : " UFW
     read -e -p "Install LetsEncrypt SSL? IMPORTANT! You MUST have your domain name pointed to this server prior to running the script!! [Y/n]: " ssl_install
+
+    # Normalise the host name and validate the optional inputs.
+    server_name="${server_name#http://}"
+    server_name="${server_name#https://}"
+    server_name="${server_name%%/*}"
+
+    if [ -z "$Public" ]; then
+        Public="$PUBLIC_IP"
+    fi
+
+    if [ -z "$EMAIL" ]; then
+        echo -e "$YELLOW No support e-mail was entered; Let's Encrypt will be skipped.$COL_RESET"
+        ssl_install="n"
+    fi
+
+    # Let's Encrypt does not issue certificates for bare IPv4 addresses.
+    if [[ "$server_name" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]; then
+        echo -e "$YELLOW $server_name looks like an IP address; SSL will be skipped.$COL_RESET"
+        ssl_install="n"
+        sub_domain="n"
+    fi
 
 
     # Switch Aptitude
@@ -115,7 +162,7 @@
     fi
 
     sudo apt -y install nginx
-    sudo rm /etc/nginx/sites-enabled/default
+    sudo rm -f /etc/nginx/sites-enabled/default
     sudo systemctl start nginx.service
     sudo systemctl enable nginx.service
     sudo systemctl start cron.service
@@ -159,75 +206,62 @@
     echo -e "$GREEN Done...$COL_RESET"
 
 
-    # Installing Installing php8.2
+    # Installing PHP (8.2 on Ubuntu 22.04, 8.3 on Ubuntu 24.04)
     echo
     echo
-    echo -e "$CYAN => Installing php8.2 : $COL_RESET"
+    echo -e "$CYAN => Installing PHP ${PHP_VER} : $COL_RESET"
     echo
     sleep 3
 
     source conf/pool.conf
-    if [ ! -f /etc/apt/sources.list.d/ondrej-php-bionic.list ]; then
-    sudo add-apt-repository -y ppa:ondrej/php
-    fi
-    sudo apt -y update
 
-    # Ensure lsb_release is available (used to detect Ubuntu version)
-    if ! command -v lsb_release &>/dev/null; then
-        sudo apt-get update && sudo apt-get install -y lsb-release
+    # Add the Ondrej PHP repository if it is not configured yet.
+    if ! grep -rqs "ondrej/php" /etc/apt/sources.list /etc/apt/sources.list.d/; then
+        echo "Adding Ondrej PHP repository..."
+        sudo add-apt-repository -y ppa:ondrej/php
+        sudo apt-get update
     fi
 
-    # Correctly extract Ubuntu version
-    DISTRO=$(lsb_release -rs)
-    echo "Debug: Detected OS version: $DISTRO"
-
-    # Check if the OS is Ubuntu 22.04 (LTS)
-    if [[ "$DISTRO" != "22.04" ]]; then
-        echo -e "\033[31mAborting, wrong OS. Must be Ubuntu 22.04 (detected: $DISTRO).\033[0m"
-        exit 1
-    fi
-
-    # Define a function for apt package installation (with -y flag to avoid confirmation prompts)
-    apt_install() {
-        sudo apt-get install -y "$@"
-    }
-
-    # Update package lists from repositories
     sudo apt-get update
 
-    # Add Ondrej PHP repository (critical fix for PHP 8.2 availability)
-    if ! apt-cache policy | grep -q "ondrej/php"; then
-        echo "Adding Ondrej PHP repository..."
-        sudo apt-get install -y software-properties-common  # Required for add-apt-repository
-        sudo add-apt-repository -y ppa:ondrej/php          # Official PHP packages may not have 8.2 yet
-        sudo apt-get update                                 # Update after adding the new repository
+    # Versioned packages are used so the requested PHP version is installed
+    # even when the distribution default is a different version.
+    PHP_PKGS=(
+        "php${PHP_VER}-fpm" "php${PHP_VER}-opcache" "php${PHP_VER}" "php${PHP_VER}-common"
+        "php${PHP_VER}-gd" "php${PHP_VER}-mysql" "php${PHP_VER}-imap" "php${PHP_VER}-cli"
+        "php${PHP_VER}-cgi" php-pear imagemagick libruby "php${PHP_VER}-curl"
+        "php${PHP_VER}-intl" "php${PHP_VER}-pspell" "php${PHP_VER}-sqlite3" "php${PHP_VER}-tidy"
+        "php${PHP_VER}-xmlrpc" "php${PHP_VER}-xsl" memcached "php${PHP_VER}-memcache"
+        "php${PHP_VER}-imagick" "php${PHP_VER}-zip" "php${PHP_VER}-mbstring"
+        libpsl-dev libnghttp2-dev "php${PHP_VER}-memcached" net-tools
+    )
+
+    # A single missing package makes apt abort the whole transaction, so fall
+    # back to installing the packages one by one.
+    if ! apt_install "${PHP_PKGS[@]}"; then
+        echo -e "$YELLOW WARNING: batch PHP install failed, retrying packages one by one...$COL_RESET"
+        for pkg in "${PHP_PKGS[@]}"; do
+            apt_install "$pkg" || echo -e "$YELLOW WARNING: could not install $pkg $COL_RESET"
+        done
     fi
 
-    # Install PHP 8.2 and its extensions
-    apt_install \
-        php8.2-fpm php8.2-opcache php8.2 php8.2-common php8.2-gd php8.2-mysql php8.2-imap php8.2-cli \
-        php8.2-cgi php-pear imagemagick libruby php8.2-curl php8.2-intl php8.2-pspell \
-        php8.2-sqlite3 php8.2-tidy php8.2-xmlrpc php8.2-xsl memcached php-memcache \
-        php-imagick php8.2-zip php8.2-mbstring libpsl-dev libnghttp2-dev \
-        php8.2-memcache php8.2-memcached net-tools
-
-    # Ensure phpenmod is available (provided by php8.2-common)
-    if ! command -v phpenmod &>/dev/null; then
-        apt_install php8.2-common
+    if ! command -v "php${PHP_VER}" >/dev/null 2>&1; then
+        displayErr "PHP ${PHP_VER} could not be installed. Check your network/apt sources and re-run the script."
     fi
 
     # Enable required PHP modules (mbstring for multibyte string handling)
-    sudo phpenmod mbstring
+    sudo phpenmod -v "${PHP_VER}" mbstring
 
-    # Set PHP 8.2 as the default PHP version
-    sudo update-alternatives --set php /usr/bin/php8.2
+    # Make the selected PHP version the default one
+    sudo update-alternatives --install /usr/bin/php php "/usr/bin/php${PHP_VER}" 100
+    sudo update-alternatives --set php "/usr/bin/php${PHP_VER}"
 
-    # Start PHP-FPM service and check its status (show only first 3 lines of status)
-    sudo systemctl start php8.2-fpm || { echo "Failed to start php8.2-fpm"; exit 1; }
-    sudo systemctl status php8.2-fpm --no-pager | sed -n "1,3p"
+    # Start PHP-FPM and memcached and check their status
+    sudo systemctl enable --now "php${PHP_VER}-fpm" || displayErr "Failed to start php${PHP_VER}-fpm"
+    sudo systemctl status "php${PHP_VER}-fpm" --no-pager | sed -n "1,3p"
+    sudo systemctl enable --now memcached || true
 
-    # Success message (green text)
-    echo -e "\033[32mDone... PHP 8.2 installed successfully!\033[0m"
+    echo -e "\033[32mDone... PHP ${PHP_VER} installed successfully!\033[0m"
     
     # Installing other needed files
     echo
@@ -238,7 +272,7 @@
 
     sudo apt -y install libgmp3-dev libmysqlclient-dev libcurl4-gnutls-dev libkrb5-dev libldap2-dev libidn11-dev gnutls-dev \
     librtmp-dev sendmail mutt screen git
-    sudo apt -y install pwgen -y
+    sudo apt -y install pwgen
     echo -e "$GREEN Done...$COL_RESET"
     sleep 3
 
@@ -250,14 +284,18 @@
     echo
     sleep 3
 
-    sudo apt -y install libtool autotools-dev automake pkg-config libssl-dev libevent-dev bsdmainutils git cmake libboost-all-dev zlib1g-dev libz-dev libseccomp-dev libcap-dev libminiupnpc-dev gettext
-    sudo apt -y install libminiupnpc17 libzmq5
-    sudo apt -y install libcanberra-gtk-module libqrencode-dev libzmq3-dev libminizip-dev
-    sudo apt -y install libqt5gui5 libqt5core5a libqt5webkit5-dev libqt5dbus5 qttools5-dev qttools5-dev-tools libprotobuf-dev protobuf-compiler fonts-powerline
-    sudo apt -y install libssh-dev libbrotli-dev
-    sudo add-apt-repository -y ppa:luke-jr/bitcoincore
-    hide_output sudo apt -y update
-    sudo apt -y install libdb4.8-dev libdb4.8++-dev libdb5.3 libdb5.3++
+    apt_install libtool autotools-dev automake pkg-config libssl-dev libevent-dev bsdmainutils git cmake libboost-all-dev zlib1g-dev libz-dev libseccomp-dev libcap-dev libminiupnpc-dev gettext
+    apt_install libminiupnpc17 libzmq5
+    apt_install libcanberra-gtk-module libqrencode-dev libzmq3-dev libminizip-dev
+    apt_install libqt5gui5 libqt5core5a libqt5webkit5-dev libqt5dbus5 qttools5-dev qttools5-dev-tools libprotobuf-dev protobuf-compiler fonts-powerline
+    apt_install libssh-dev libbrotli-dev
+
+    # Berkeley DB 4.8 is only available from the Bitcoin Core PPA.
+    if ! apt-cache show libdb4.8-dev >/dev/null 2>&1; then
+        sudo add-apt-repository -y ppa:luke-jr/bitcoincore || true
+        hide_output sudo apt -y update
+    fi
+    apt_install_optional libdb4.8-dev libdb4.8++-dev libdb5.3 libdb5.3++
     echo -e "$GREEN Done...$COL_RESET"
 
 
@@ -267,28 +305,19 @@
     adminpasswd=`cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 32 | head -n 1`
     AUTOGENERATED_PASS=`pwgen -c -1 20`
 
-    #TODO: Need testing
-    # Test Email
+    # Send a test e-mail (best effort; a broken MTA must not abort the install)
     echo
     echo
     echo -e "$CYAN => Testing to see if server emails are sent $COL_RESET"
     echo
     sleep 3
 
-    if [[ "$root_email" != "" ]]; then
-        echo $root_email > sudo tee --append ~/.email
-        echo $root_email > sudo tee --append ~/.forward
-
-    if [[ ("$send_email" == "y" || "$send_email" == "Y" || "$send_email" == "") ]]; then
-        echo "This is a mail test for the SMTP Service." > sudo tee --append /tmp/email.message
-        echo "You should receive this !" >> sudo tee --append /tmp/email.message
-        echo "" >> sudo tee --append /tmp/email.message
-        echo "Cheers" >> sudo tee --append /tmp/email.message
-        sudo sendmail -s "SMTP Testing" $root_email < sudo tee --append /tmp/email.message
-
-        sudo rm -f /tmp/email.message
-        echo "Mail sent"
-    fi
+    if [ -n "$EMAIL" ] && command -v sendmail >/dev/null 2>&1; then
+        printf 'To: %s\nSubject: yiimp SMTP test\n\nThis is a test message from %s.\n' \
+            "$EMAIL" "$server_name" | sudo sendmail -t \
+            || echo -e "$YELLOW WARNING: the test e-mail could not be sent $COL_RESET"
+    else
+        echo -e "$YELLOW sendmail is not available; skipping the test e-mail $COL_RESET"
     fi
     echo -e "$GREEN Done...$COL_RESET"
 
@@ -416,59 +445,77 @@
 
     # Compile Blocknotify
     echo -e "Compiling Blocknotify"
-    cd ~
-    sudo git clone https://github.com/Kudaraidee/yiimp.git
-    cd $HOME/yiimp/blocknotify
-    sudo sed -i 's/tu8tu5/'$blckntifypass'/' blocknotify.cpp
-    make -j$((`nproc`+1))
-    sudo strip blocknotify
+    cd "$HOME"
+    if [ -d "$HOME/yiimp" ]; then
+        displayErr "The directory $HOME/yiimp already exists. Move or remove it, then run the installer again."
+    fi
+    if [ -e /var/web ]; then
+        displayErr "/var/web already exists. This installer must be run on a fresh server."
+    fi
+    git clone https://github.com/Kudaraidee/yiimp.git || displayErr "Could not clone the yiimp repository."
+    cd "$HOME/yiimp/blocknotify" || displayErr "yiimp/blocknotify was not found after cloning."
+    sed -i "s/tu8tu5/${blckntifypass}/" blocknotify.cpp
+    make -j"$(nproc)"
+    strip blocknotify
 
     # Compile Stratum
     echo -e "Compiling Stratum"
-    cd $HOME/yiimp/stratum/
-    sudo git submodule init && git submodule update
-    sudo apt_install gcc-10 g++-10 -y
-    sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 10
-    sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-11 11
-    sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-10 10
-    sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-11 11
-    sudo update-alternatives --set gcc /usr/bin/gcc-10
-    sudo update-alternatives --set g++ /usr/bin/g++-10 
-    
-    sudo git submodule init && git submodule update
-    sudo make -C algos
-    sudo make -C sha3
-    sudo make -C iniparser
-    cd secp256k1
-    sudo chmod +x autogen.sh && ./autogen.sh && ./configure --enable-experimental --enable-module-ecdh --with-bignum=no --enable-endomorphism && make
-    cd $HOME/yiimp/stratum/
-    if [[ ("$BTC" == "y" || "$BTC" == "Y") ]]; then
-    sudo sed -i 's/CFLAGS += -DNO_EXCHANGE/#CFLAGS += -DNO_EXCHANGE/' $HOME/yiimp/stratum/Makefile
-    fi
-    sudo make -j$((`nproc`+1))
+    cd "$HOME/yiimp/stratum/"
+    git submodule update --init --recursive
 
-    sudo update-alternatives --set gcc /usr/bin/gcc-11 
-    sudo update-alternatives --set g++ /usr/bin/g++-11
+    # yiimp's stratum is tested with gcc-10. Put small compiler wrappers first
+    # in PATH instead of changing the system-wide compiler alternatives.
+    BUILD_BIN="$HOME/.yiimp-build/bin"
+    mkdir -p "$BUILD_BIN"
+    if apt_install gcc-10 g++-10 && command -v gcc-10 >/dev/null 2>&1; then
+        printf '#!/bin/sh\nexec gcc-10 "$@"\n' > "$BUILD_BIN/gcc"
+        printf '#!/bin/sh\nexec g++-10 "$@"\n' > "$BUILD_BIN/g++"
+        chmod +x "$BUILD_BIN/gcc" "$BUILD_BIN/g++"
+        export PATH="$BUILD_BIN:$PATH"
+        echo "Using gcc-10/g++-10 for the stratum build"
+    else
+        echo "gcc-10 is not available, using the default compiler ($(gcc -dumpversion))"
+    fi
+
+    make -C algos
+    make -C sha3
+    make -C iniparser
+    cd secp256k1
+    chmod +x autogen.sh
+    ./autogen.sh
+    ./configure --enable-experimental --enable-module-ecdh --with-bignum=no --enable-endomorphism
+    make -j"$(nproc)"
+    cd "$HOME/yiimp/stratum/"
+    if [[ ("$BTC" == "y" || "$BTC" == "Y") ]]; then
+        sed -i 's/CFLAGS += -DNO_EXCHANGE/#CFLAGS += -DNO_EXCHANGE/' Makefile
+    fi
+    make -j"$(nproc)"
+
+    # Drop the temporary compiler wrappers from PATH.
+    export PATH="${PATH#"$BUILD_BIN:"}"
+    rm -rf "$BUILD_BIN"
 
     # Copy Files (Blocknotify,iniparser,Stratum)
-    cd $HOME/yiimp
-    sudo sed -i 's/AdminRights/'AdminPanel'/' $HOME/yiimp/web/yaamp/modules/site/SiteController.php
-    sudo cp -r $HOME/yiimp/web /var/
+    cd "$HOME/yiimp"
+    sudo sed -i 's/AdminRights/'AdminPanel'/' "$HOME/yiimp/web/yaamp/modules/site/SiteController.php"
+    sudo cp -r "$HOME/yiimp/web" /var/
     sudo mkdir -p /var/stratum
-    cd $HOME/yiimp/stratum
+    cd "$HOME/yiimp/stratum"
     sudo cp -a config.sample/. /var/stratum/config
     sudo cp -r stratum /var/stratum
     sudo cp -r run.sh /var/stratum
-    cd $HOME/yiimp
-    sudo cp -r $HOME/yiimp/bin/. /bin/
-    sudo cp -r $HOME/yiimp/blocknotify/blocknotify /usr/bin/
-    sudo cp -r $HOME/yiimp/blocknotify/blocknotify /var/stratum/
+    cd "$HOME/yiimp"
+    sudo cp -r "$HOME/yiimp/bin/." /bin/
+    sudo cp -r "$HOME/yiimp/blocknotify/blocknotify" /usr/bin/
+    sudo cp -r "$HOME/yiimp/blocknotify/blocknotify" /var/stratum/
     sudo mkdir -p /etc/yiimp
-    sudo mkdir -p /$HOME/backup/
+    sudo mkdir -p /var/bin
+    sudo chgrp www-data /var/bin
+    sudo chmod 775 /var/bin
     #fixing yiimp
     sudo sed -i "s|ROOTDIR=/data/yiimp|ROOTDIR=/var|g" /bin/yiimp
     #fixing run.sh
-    sudo rm -r /var/stratum/config/run.sh
+    sudo rm -f /var/stratum/config/run.sh
     echo '
     #!/bin/bash
     ulimit -n 1024000
@@ -492,12 +539,8 @@
     echo
 
     echo -e " Setting TimeZone to UTC...$COL_RESET"
-    if [ ! -f /etc/timezone ]; then
-    echo "Setting timezone to UTC."
-    echo "Etc/UTC" > sudo /etc/timezone
-    sudo systemctl restart rsyslog
-    fi
-    sudo systemctl status rsyslog | sed -n "1,3p"
+    sudo timedatectl set-timezone UTC 2>/dev/null || echo "Etc/UTC" | sudo tee /etc/timezone >/dev/null
+    sudo systemctl try-restart rsyslog 2>/dev/null || true
     echo
     echo -e "$GREEN Done...$COL_RESET"
 
@@ -549,7 +592,7 @@
 
         location ~ ^/index\.php$ {
             fastcgi_split_path_info ^(.+\.php)(/.+)$;
-            fastcgi_pass unix:/var/run/php/php8.2-fpm.sock;
+            fastcgi_pass unix:/var/run/php/php'"${PHP_VER}"'-fpm.sock;
             fastcgi_index index.php;
             include fastcgi_params;
             fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
@@ -586,7 +629,7 @@
             deny all;
       }
         location ~ /phpmyadmin/(.+\.php)$ {
-            fastcgi_pass unix:/run/php/php8.2-fpm.sock;
+            fastcgi_pass unix:/run/php/php'"${PHP_VER}"'-fpm.sock;
             fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
             include fastcgi_params;
             include snippets/fastcgi-php.conf;
@@ -595,10 +638,10 @@
     }
     ' | sudo -E tee /etc/nginx/sites-available/$server_name.conf >/dev/null 2>&1
 
-    sudo ln -s /etc/nginx/sites-available/$server_name.conf /etc/nginx/sites-enabled/$server_name.conf
-    sudo ln -s /var/web /var/www/$server_name/html
-    sudo ln -s /var/stratum/config /var/web/list-algos
-    sudo systemctl reload php8.2-fpm.service
+    sudo ln -sfn /etc/nginx/sites-available/$server_name.conf /etc/nginx/sites-enabled/$server_name.conf
+    sudo ln -sfn /var/web /var/www/$server_name/html
+    sudo ln -sfn /var/stratum/config /var/web/list-algos
+    sudo systemctl reload php${PHP_VER}-fpm.service
     sudo systemctl restart nginx.service
     echo -e "$GREEN Done...$COL_RESET"
 
@@ -610,9 +653,14 @@
     echo -e "Install LetsEncrypt and setting SSL (with SubDomain)"
     echo
 
-    sudo apt -y install letsencrypt
-    sudo letsencrypt certonly -a webroot --webroot-path=/var/web --email "$EMAIL" --agree-tos -d "$server_name"
-    sudo rm /etc/nginx/sites-available/$server_name.conf
+    apt_install certbot
+    if ! sudo certbot certonly --non-interactive -a webroot --webroot-path=/var/web \
+        --email "$EMAIL" --agree-tos -d "$server_name"; then
+        echo -e "$RED WARNING: the certificate could not be obtained. Keeping the HTTP-only configuration.$COL_RESET"
+        ssl_install="n"
+    fi
+    if [[ "$ssl_install" != "n" ]]; then
+    sudo rm -f /etc/nginx/sites-available/$server_name.conf
     sudo openssl dhparam -out /etc/ssl/certs/dhparam.pem 2048
     # I am SSL Man!
     echo 'include /etc/nginx/blockuseragents.rules;
@@ -680,7 +728,7 @@
 
             location ~ ^/index\.php$ {
                 fastcgi_split_path_info ^(.+\.php)(/.+)$;
-                fastcgi_pass unix:/var/run/php/php8.2-fpm.sock;
+                fastcgi_pass unix:/var/run/php/php'"${PHP_VER}"'-fpm.sock;
                 fastcgi_index index.php;
                 include fastcgi_params;
                 fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
@@ -711,7 +759,7 @@
             deny all;
     }
         location ~ /phpmyadmin/(.+\.php)$ {
-            fastcgi_pass unix:/run/php/php8.2-fpm.sock;
+            fastcgi_pass unix:/run/php/php'"${PHP_VER}"'-fpm.sock;
             fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
             include fastcgi_params;
             include snippets/fastcgi-php.conf;
@@ -721,8 +769,9 @@
 
     ' | sudo -E tee /etc/nginx/sites-available/$server_name.conf >/dev/null 2>&1
     fi
+    fi
 
-    sudo systemctl reload php8.2-fpm.service
+    sudo systemctl reload php${PHP_VER}-fpm.service
     sudo systemctl restart nginx.service
     echo -e "$GREEN Done...$COL_RESET"
 
@@ -765,7 +814,7 @@
 
         location ~ ^/index\.php$ {
             fastcgi_split_path_info ^(.+\.php)(/.+)$;
-            fastcgi_pass unix:/var/run/php/php8.2-fpm.sock;
+            fastcgi_pass unix:/var/run/php/php'"${PHP_VER}"'-fpm.sock;
             fastcgi_index index.php;
             include fastcgi_params;
             fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
@@ -802,7 +851,7 @@
             deny all;
     }
         location ~ /phpmyadmin/(.+\.php)$ {
-            fastcgi_pass unix:/run/php/php8.2-fpm.sock;
+            fastcgi_pass unix:/run/php/php'"${PHP_VER}"'-fpm.sock;
             fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
             include fastcgi_params;
             include snippets/fastcgi-php.conf;
@@ -811,10 +860,10 @@
     }
     ' | sudo -E tee /etc/nginx/sites-available/$server_name.conf >/dev/null 2>&1
 
-    sudo ln -s /etc/nginx/sites-available/$server_name.conf /etc/nginx/sites-enabled/$server_name.conf
-    sudo ln -s /var/web /var/www/$server_name/html
-    sudo ln -s /var/stratum/config /var/web/list-algos
-    sudo systemctl reload php8.2-fpm.service
+    sudo ln -sfn /etc/nginx/sites-available/$server_name.conf /etc/nginx/sites-enabled/$server_name.conf
+    sudo ln -sfn /var/web /var/www/$server_name/html
+    sudo ln -sfn /var/stratum/config /var/web/list-algos
+    sudo systemctl reload php${PHP_VER}-fpm.service
     sudo systemctl restart nginx.service
     echo -e "$GREEN Done...$COL_RESET"
 
@@ -827,9 +876,14 @@
     echo
     sleep 3
 
-    sudo apt -y install letsencrypt
-    sudo letsencrypt certonly -a webroot --webroot-path=/var/web --email "$EMAIL" --agree-tos -d "$server_name" -d www."$server_name"
-    sudo rm /etc/nginx/sites-available/$server_name.conf
+    apt_install certbot
+    if ! sudo certbot certonly --non-interactive -a webroot --webroot-path=/var/web \
+        --email "$EMAIL" --agree-tos -d "$server_name" -d "www.${server_name}"; then
+        echo -e "$RED WARNING: the certificate could not be obtained. Keeping the HTTP-only configuration.$COL_RESET"
+        ssl_install="n"
+    fi
+    if [[ "$ssl_install" != "n" ]]; then
+    sudo rm -f /etc/nginx/sites-available/$server_name.conf
     sudo openssl dhparam -out /etc/ssl/certs/dhparam.pem 2048
     # I am SSL Man!
     echo 'include /etc/nginx/blockuseragents.rules;
@@ -897,7 +951,7 @@
 
             location ~ ^/index\.php$ {
                 fastcgi_split_path_info ^(.+\.php)(/.+)$;
-                fastcgi_pass unix:/var/run/php/php8.2-fpm.sock;
+                fastcgi_pass unix:/var/run/php/php'"${PHP_VER}"'-fpm.sock;
                 fastcgi_index index.php;
                 include fastcgi_params;
                 fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
@@ -930,7 +984,7 @@
             deny all;
     }
         location ~ /phpmyadmin/(.+\.php)$ {
-            fastcgi_pass unix:/run/php/php8.2-fpm.sock;
+            fastcgi_pass unix:/run/php/php'"${PHP_VER}"'-fpm.sock;
             fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
             include fastcgi_params;
             include snippets/fastcgi-php.conf;
@@ -943,7 +997,8 @@
     echo -e "$GREEN Done...$COL_RESET"
 
     fi
-    sudo systemctl reload php8.2-fpm.service
+    fi
+    sudo systemctl reload php${PHP_VER}-fpm.service
     sudo systemctl restart nginx.service
     fi
 
@@ -955,18 +1010,10 @@
     echo
     sleep 3
 
-    # Create database
-    Q1="CREATE DATABASE IF NOT EXISTS yiimpfrontend;"
-    Q2="GRANT ALL ON *.* TO 'panel'@'localhost' IDENTIFIED BY '$password';"
-    Q3="FLUSH PRIVILEGES;"
-    SQL="${Q1}${Q2}${Q3}"
-    sudo mysql -u root -p="" -e "$SQL"
-
-    # Create stratum user
-    Q1="GRANT ALL ON *.* TO 'stratum'@'localhost' IDENTIFIED BY '$password2';"
-    Q2="FLUSH PRIVILEGES;"
-    SQL="${Q1}${Q2}"
-    sudo mysql -u root -p="" -e "$SQL"
+    # Create database and users (MariaDB on Ubuntu uses unix_socket for root)
+    sudo mysql -u root -e "CREATE DATABASE IF NOT EXISTS yiimpfrontend;"
+    sudo mysql -u root -e "CREATE USER IF NOT EXISTS 'panel'@'localhost' IDENTIFIED BY '${password}'; GRANT ALL PRIVILEGES ON *.* TO 'panel'@'localhost'; FLUSH PRIVILEGES;"
+    sudo mysql -u root -e "CREATE USER IF NOT EXISTS 'stratum'@'localhost' IDENTIFIED BY '${password2}'; GRANT ALL PRIVILEGES ON *.* TO 'stratum'@'localhost'; FLUSH PRIVILEGES;"
 
     #Create my.cnf
 
@@ -985,13 +1032,14 @@
     user=phpmyadmin
     password='"${AUTOGENERATED_PASS}"'
     [mysql]
-    user=root
-    password='"${rootpasswd}"'
+    user=panel
+    password='"${password}"'
+    database=yiimpfrontend
     [admin]
     user=admin
     password='"${adminpasswd}"'
-    ' | sudo -E tee ~/.my.cnf >/dev/null 2>&1
-      sudo chmod 0600 ~/.my.cnf
+    ' | sudo -E tee "$HOME/.my.cnf" >/dev/null 2>&1
+      sudo chmod 0600 "$HOME/.my.cnf"
 
 
     # Create keys file
@@ -1023,6 +1071,8 @@
 
     define('"'"'EXCH_NESTEX_SECRET'"'"', '"'"''"'"');
     ' | sudo -E tee /etc/yiimp/keys.php >/dev/null 2>&1
+    sudo chown root:www-data /etc/yiimp/keys.php
+    sudo chmod 640 /etc/yiimp/keys.php
 
     echo -e "$GREEN Done...$COL_RESET"
 
@@ -1036,28 +1086,25 @@
     echo
     sleep 3
 
-    cd ~
-    cd yiimp/sql
+    cd "$HOME/yiimp/sql" || displayErr "yiimp/sql was not found after cloning."
 
-    # Import sql dump
-    sudo zcat 2024-03-06-complete_export.sql.gz | sudo mysql --defaults-group-suffix=host1 --defaults-file=/home/${whoami}/.my.cnf
+    MYSQL=(sudo mysql "--defaults-file=$HOME/.my.cnf" --defaults-group-suffix=host1)
+
+    # Import the newest full database dump
+    DUMP_FILE=$(ls -1 *-complete_export.sql.gz 2>/dev/null | sort | tail -n 1)
+    if [ -z "$DUMP_FILE" ]; then
+        displayErr "No SQL dump (*-complete_export.sql.gz) found in $HOME/yiimp/sql"
+    fi
+    echo -e "Importing ${DUMP_FILE}..."
+    zcat "$DUMP_FILE" | "${MYSQL[@]}"
     echo -e "$GREEN Done...$COL_RESET"
 
-    # Oh the humanity!
-    sudo mysql --defaults-group-suffix=host1 yiimpfrontend --force < 2024-03-18-add_aurum_algo.sql
-    sudo mysql --defaults-group-suffix=host1 yiimpfrontend --force < 2024-03-29-add_github_version.sql
-    sudo mysql --defaults-group-suffix=host1 yiimpfrontend --force < 2024-03-31-add_payout_threshold.sql
-    sudo mysql --defaults-group-suffix=host1 yiimpfrontend --force < 2024-04-01-add_auto_exchange.sql
-    sudo mysql --defaults-group-suffix=host1 yiimpfrontend --force < 2024-04-01-shares_blocknumber.sql
-    sudo mysql --defaults-group-suffix=host1 yiimpfrontend --force < 2024-04-05-algos_port_color.sql
-    sudo mysql --defaults-group-suffix=host1 yiimpfrontend --force < 2024-04-22-add_equihash_algos.sql
-    sudo mysql --defaults-group-suffix=host1 yiimpfrontend --force < 2024-04-23-add_pers_string.sql
-    sudo mysql --defaults-group-suffix=host1 yiimpfrontend --force < 2024-04-29-add_sellthreshold.sql
-    sudo mysql --defaults-group-suffix=host1 yiimpfrontend --force < 2024-05-04-add_neoscrypt_xaya_algo.sql
-    sudo mysql --defaults-group-suffix=host1 yiimpfrontend --force < 2025-02-06-add_usemweb.sql
-    sudo mysql --defaults-group-suffix=host1 yiimpfrontend --force < 2025-02-13-add_xelisv2-pepew.sql
-    sudo mysql --defaults-group-suffix=host1 yiimpfrontend --force < 2025-02-23-add_algo_kawpow.sql
-    sudo mysql --defaults-group-suffix=host1 yiimpfrontend --force < 2025-10-05-add_argon2d1000.sql
+    # Apply every follow-up migration in date order. --force keeps going when a
+    # migration is already included in the full dump.
+    for sqlfile in $(ls -1 2*.sql 2>/dev/null | sort); do
+        echo -e "Applying ${sqlfile}..."
+        "${MYSQL[@]}" yiimpfrontend --force < "$sqlfile"
+    done
     echo -e "$GREEN Done...$COL_RESET"
 
     
@@ -1208,26 +1255,25 @@
     echo
     sleep 3
 
-    whoami=`whoami`
+    whoami=$(whoami)
     sudo usermod -aG www-data $whoami
-    sudo usermod -a -G www-data $whoami
 
     sudo find /var/web -type d -exec chmod 775 {} +
     sudo find /var/web -type f -exec chmod 664 {} +
     sudo chgrp www-data /var/web -R
-    sudo chmod g+w /var/web -R
+    sudo chmod -R g+w /var/web
 
-    sudo mkdir /var/log/yiimp
+    sudo mkdir -p /var/log/yiimp
     sudo touch /var/log/yiimp/debug.log
     sudo chgrp www-data /var/log/yiimp -R
-    sudo chmod 775 /var/log/yiimp -R
+    sudo chmod -R 775 /var/log/yiimp
 
     sudo chgrp www-data /var/stratum -R
     sudo chmod 775 /var/stratum
 
     sudo mkdir -p /var/yiimp/sauv
     sudo chgrp www-data /var/yiimp -R
-    sudo chmod 775 /var/yiimp -R
+    sudo chmod -R 775 /var/yiimp
 
 
     #Add to contrab screen-scrypt
@@ -1239,24 +1285,19 @@
 
     #fix error screen main "backup sql frontend"
     sudo sed -i "s|/root/backup|/var/yiimp/sauv|g" /var/web/yaamp/core/backend/system.php
-    sudo sed -i '14d' /var/web/yaamp/defaultconfig.php
 
     #Misc
-    sudo mv $HOME/yiimp/ $HOME/yiimp-install-only-do-not-run-commands-from-this-folder
+    sudo mv "$HOME/yiimp/" "$HOME/yiimp-install-only-do-not-run-commands-from-this-folder-$(date +%Y%m%d-%H%M%S)"
     sudo rm -rf /var/log/nginx/*
-
-    #Hold update OpenSSL
-    #If you want remove the hold : sudo apt-mark unhold openssl
-    sudo apt-mark hold openssl
 
     #Restart service
     sudo systemctl restart cron.service
-    sudo systemctl restart mysql
-    sudo systemctl status mysql | sed -n "1,3p"
+    sudo systemctl restart mariadb
+    sudo systemctl status mariadb | sed -n "1,3p"
     sudo systemctl restart nginx.service
     sudo systemctl status nginx | sed -n "1,3p"
-    sudo systemctl restart php8.2-fpm.service
-    sudo systemctl status php8.2-fpm | sed -n "1,3p"
+    sudo systemctl restart php${PHP_VER}-fpm.service
+    sudo systemctl status php${PHP_VER}-fpm | sed -n "1,3p"
 
 
     echo
@@ -1267,8 +1308,8 @@
     echo
     echo
     echo -e "$GREEN***************************$COL_RESET"
-    echo -e "$GREEN Yiimp Install Script v1.0 $COL_RESET"
-    echo -e "$GREEN Finish !!! $COL_RESET"
+    echo -e "$GREEN Yiimp Install Script v1.1 $COL_RESET"
+    echo -e "$GREEN Finish !!! (Ubuntu ${DISTRO} / PHP ${PHP_VER}) $COL_RESET"
     echo -e "$GREEN***************************$COL_RESET"
     echo
     echo
@@ -1292,7 +1333,7 @@
     echo -e "$RED YOU MUST REBOOT NOW  TO FINALIZE INSTALLATION !!! $COL_RESET"
     echo -e "$RED***************************************************$COL_RESET"
     echo -e "$RED if u have white page blank on site check          $COL_RESET"
-    echo -e "$RED php8.2-memcache | php8.2-memcached | php8.2-fpm   $COL_RESET"
+    echo -e "$RED php${PHP_VER}-memcache | php${PHP_VER}-memcached | php${PHP_VER}-fpm   $COL_RESET"
     echo -e "$RED try just restart them first...                    $COL_RESET"
     echo -e "$RED***************************************************$COL_RESET"
     echo
